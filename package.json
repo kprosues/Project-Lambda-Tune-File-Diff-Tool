@@ -1,0 +1,118 @@
+{
+  "name": "ecu-tune-compare",
+  "version": "1.0.0",
+  "description": "Desktop application to compare automotive ECU configuration files",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "predev": "webpack --mode development",
+    "dev": "electron . --dev",
+    "dev:watch": "webpack --mode development --watch",
+    "dev:start": "webpack --mode development && electron . --dev",
+    "build": "webpack --mode production",
+    "build:start": "npm run build && NODE_ENV=production electron .",
+    "watch": "webpack --mode development --watch",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "pack": "npm run build && electron-builder --dir",
+    "clean:cache": "rmdir /s /q \"%LOCALAPPDATA%\\electron-builder\\Cache\" 2>nul || echo Cache cleared or does not exist"
+  },
+  "keywords": [
+    "electron",
+    "ecu",
+    "tune",
+    "comparison"
+  ],
+  "author": "",
+  "license": "MIT",
+  "build": {
+    "appId": "com.ecutunecompare.app",
+    "productName": "ECU Tune Compare",
+    "directories": {
+      "output": "release"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "files": [
+      "dist/**/*",
+      "main.js",
+      "preload.js",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "src/assets",
+        "to": "assets",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "src/assets/icon.png",
+      "sign": null,
+      "signAndEditExecutable": false,
+      "signDlls": false,
+      "verifyUpdateCodeSignature": false
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities",
+      "icon": "src/assets/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "icon": "src/assets/icon.png"
+    },
+    "electronDownload": {
+      "cache": null
+    }
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0",
+    "@babel/preset-react": "^7.22.0",
+    "babel-loader": "^9.1.3",
+    "css-loader": "^6.8.1",
+    "electron": "^27.0.0",
+    "electron-builder": "^24.9.1",
+    "html-webpack-plugin": "^5.5.3",
+    "style-loader": "^3.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
+    "chart.js": "^4.4.0",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.158.0"
+  }
+}

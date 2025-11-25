@@ -1,0 +1,11 @@
+# electron-builder configuration
+# This file can be used to override settings in package.json
+
+# Disable code signing to avoid symlink permission issues on Windows
+{
+  "win": {
+    "signAndEditExecutable": false,
+    "signDlls": false
+  }
+}
+
