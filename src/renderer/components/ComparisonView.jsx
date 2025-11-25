@@ -42,14 +42,22 @@ function ComparisonView({ file1, file2, comparison, onFileLoad, onCompare, onCle
         </div>
         <div className="header-right">
           <div className="header-controls">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showDifferencesOnly}
-                onChange={(e) => setShowDifferencesOnly(e.target.checked)}
-              />
-              Show differences only
-            </label>
+            <div className="change-mode-toggle">
+              <button
+                className={`toggle-btn ${!showDifferencesOnly ? 'active' : ''}`}
+                onClick={() => setShowDifferencesOnly(false)}
+                title="Show all maps"
+              >
+                All
+              </button>
+              <button
+                className={`toggle-btn ${showDifferencesOnly ? 'active' : ''}`}
+                onClick={() => setShowDifferencesOnly(true)}
+                title="Show differences only"
+              >
+                Differences
+              </button>
+            </div>
             {comparison && (
               <div className="change-mode-toggle">
                 <button
