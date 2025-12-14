@@ -1,8 +1,9 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { formatNumber, formatDelta, formatPercentageChange, getDifferenceColorClass, detectDataPrecision, calculateDataRange, valueToHeatmapColor } from '../utils/formatters';
 
 function MapTable({ map1, map2, mapDiff, rowIndexData, colIndexData, showPercentChange = false }) {
   const containerRef = useRef(null);
+  const tableRef = useRef(null);
   const [cellSize, setCellSize] = useState({ width: 80, height: 40 });
   // Determine which map to use for dimensions (prefer map1, fallback to map2)
   const primaryMap = map1 || map2;
@@ -119,66 +120,360 @@ function MapTable({ map1, map2, mapDiff, rowIndexData, colIndexData, showPercent
   const colOrder = sortedIndices.colSortOrder || Array.from({ length: maxCols }, (_, i) => i);
   const rowOrder = sortedIndices.rowSortOrder || Array.from({ length: maxRows }, (_, i) => i);
 
+  // Use layout effect to measure and adjust after content is rendered
+  useLayoutEffect(() => {
+    const checkAndAdjust = () => {
+      if (!tableRef.current || !containerRef.current) return;
+      
+      const table = tableRef.current;
+      const container = containerRef.current;
+      
+      // Measure actual table dimensions after content is rendered
+      const tableRect = table.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      
+      // Allow table to be larger than viewport for scrolling
+      // Only adjust cell sizes if table is unreasonably large (more than 50% larger than viewport)
+      // This allows scrolling while preventing extremely oversized tables
+      const maxReasonableWidth = containerRect.width * 1.5;
+      const maxReasonableHeight = containerRect.height * 1.5;
+      const overflowsWidth = tableRect.width > maxReasonableWidth;
+      const overflowsHeight = tableRect.height > maxReasonableHeight;
+      
+      // Only adjust if table is unreasonably large - otherwise allow scrolling
+      if (overflowsWidth || overflowsHeight) {
+        // Table overflows, recalculate cell sizes more aggressively
+        const mapViewContent = container.closest('.map-view-content');
+        const parentStyle = mapViewContent ? getComputedStyle(mapViewContent) : null;
+        const parentPaddingLeft = parentStyle ? parseInt(parentStyle.paddingLeft || '32px', 10) : 32;
+        const parentPaddingRight = parentStyle ? parseInt(parentStyle.paddingRight || '32px', 10) : 32;
+        const parentPaddingTop = parentStyle ? parseInt(parentStyle.paddingTop || '32px', 10) : 32;
+        const parentPaddingBottom = parentStyle ? parseInt(parentStyle.paddingBottom || '32px', 10) : 32;
+        
+        const mapViewHeader = container.closest('.map-view')?.querySelector('.map-view-header');
+        const headerHeight = mapViewHeader ? mapViewHeader.getBoundingClientRect().height : 0;
+        
+        const rowHeaderWidth = 80;
+        const scrollbarWidth = 17;
+        const margin = 4;
+        // Account for table header row in height calculation
+        const tableHeader = tableRef.current?.querySelector('thead');
+        const tableHeaderHeight = tableHeader?.getBoundingClientRect().height || cellSize.height;
+        
+        const availableWidth = Math.max(0, containerRect.width - parentPaddingLeft - parentPaddingRight - rowHeaderWidth - scrollbarWidth - margin);
+        const availableHeight = Math.max(0, containerRect.height - parentPaddingTop - parentPaddingBottom - headerHeight - scrollbarWidth - margin - tableHeaderHeight);
+        
+        const numCols = colOrder.length;
+        const numRows = rowOrder.length;
+        
+        if (numCols > 0 && numRows > 0 && availableWidth > 0 && availableHeight > 0) {
+          // Calculate cell sizes to fit exactly
+          const cellWidth = Math.max(15, Math.floor(availableWidth / numCols));
+          const cellHeight = Math.max(15, Math.floor(availableHeight / numRows));
+          
+          // Only update if different to avoid infinite loops
+          if (cellWidth !== cellSize.width || cellHeight !== cellSize.height) {
+            setCellSize({ width: cellWidth, height: cellHeight });
+          }
+        } else if (numCols > 0 && numRows > 0 && availableWidth > 0) {
+          // If height calculation failed, at least ensure width fits
+          const cellWidth = Math.max(15, Math.floor(availableWidth / numCols));
+          if (cellWidth !== cellSize.width) {
+            setCellSize(prev => ({ ...prev, width: cellWidth }));
+          }
+        }
+      }
+    };
+    
+    // Check immediately after layout
+    checkAndAdjust();
+    
+    // Also check after a short delay to catch any delayed rendering
+    const timeout1 = setTimeout(checkAndAdjust, 0);
+    const timeout2 = setTimeout(checkAndAdjust, 50);
+    const timeout3 = setTimeout(checkAndAdjust, 200);
+    
+    return () => {
+      clearTimeout(timeout1);
+      clearTimeout(timeout2);
+      clearTimeout(timeout3);
+    };
+  }, [colOrder.length, rowOrder.length, data1, data2]);
+
   // Calculate optimal cell size to fit table in viewport
   useEffect(() => {
     const calculateCellSize = () => {
       if (!containerRef.current) return;
 
       const container = containerRef.current;
-      const containerRect = container.getBoundingClientRect();
+      let containerRect = container.getBoundingClientRect();
+      
+      // If container has no dimensions, try to get dimensions from parent
+      if (containerRect.width === 0 || containerRect.height === 0) {
+        const mapViewContent = container.closest('.map-view-content');
+        if (mapViewContent) {
+          containerRect = mapViewContent.getBoundingClientRect();
+        }
+      }
+      
+      // Fallback to window dimensions if still no size
+      if (containerRect.width === 0 || containerRect.height === 0) {
+        containerRect = {
+          width: window.innerWidth,
+          height: window.innerHeight
+        };
+      }
       
       // Get parent container (map-view-content) to account for its padding
       const mapViewContent = container.closest('.map-view-content');
-      const parentPadding = mapViewContent ? 
-        (parseInt(getComputedStyle(mapViewContent).paddingTop || '32px', 10) * 2) : 64;
+      const parentStyle = mapViewContent ? getComputedStyle(mapViewContent) : null;
+      const parentPaddingTop = parentStyle ? parseInt(parentStyle.paddingTop || '32px', 10) : 32;
+      const parentPaddingBottom = parentStyle ? parseInt(parentStyle.paddingBottom || '32px', 10) : 32;
+      const parentPaddingLeft = parentStyle ? parseInt(parentStyle.paddingLeft || '32px', 10) : 32;
+      const parentPaddingRight = parentStyle ? parseInt(parentStyle.paddingRight || '32px', 10) : 32;
       
-      const headerWidth = 80; // Row header width
-      const headerHeight = 45; // Header row height (accounting for padding and border)
+      // Get header height from map-view-header if it exists
+      const mapViewHeader = container.closest('.map-view')?.querySelector('.map-view-header');
+      const headerHeight = mapViewHeader ? mapViewHeader.getBoundingClientRect().height : 0;
+      
+      const rowHeaderWidth = 80; // Row header width
       const borderWidth = 2; // Border width
       
-      // Available space (accounting for headers and borders)
-      // Parent padding is already accounted for in containerRect
-      const availableWidth = containerRect.width - headerWidth - borderWidth;
-      const availableHeight = containerRect.height - headerHeight - borderWidth;
+      // Calculate available space
+      // Use container dimensions minus padding and headers
+      // Account for scrollbar width (typically 15-17px) if overflow is enabled
+      const scrollbarWidth = 17;
+      const availableWidth = Math.max(0, containerRect.width - parentPaddingLeft - parentPaddingRight - rowHeaderWidth - borderWidth - scrollbarWidth);
+      const availableHeight = Math.max(0, containerRect.height - parentPaddingTop - parentPaddingBottom - headerHeight - borderWidth - scrollbarWidth);
       
       // Calculate cell dimensions
       const numCols = colOrder.length;
       const numRows = rowOrder.length;
       
       if (numCols > 0 && numRows > 0 && availableWidth > 0 && availableHeight > 0) {
-        const cellWidth = Math.max(40, Math.floor(availableWidth / numCols)); // Min 40px
-        const cellHeight = Math.max(30, Math.floor(availableHeight / numRows)); // Min 30px
+        // Calculate cell width - ensure it fits within available space
+        let cellWidth = Math.floor(availableWidth / numCols);
+        
+        // Apply minimum constraints but allow smaller if needed to fit
+        const minCellWidth = 30;
+        if (cellWidth < minCellWidth && availableWidth < numCols * minCellWidth) {
+          // If we can't fit with minimum, use what we have
+          cellWidth = Math.max(20, Math.floor(availableWidth / numCols));
+        } else {
+          cellWidth = Math.max(minCellWidth, cellWidth);
+        }
+        
+        // Calculate cell height - ensure it fits within available space
+        let cellHeight = Math.floor(availableHeight / numRows);
+        
+        // Apply minimum constraints but allow smaller if needed to fit
+        const minCellHeight = 25;
+        if (cellHeight < minCellHeight && availableHeight < numRows * minCellHeight) {
+          // If we can't fit with minimum, use what we have
+          cellHeight = Math.max(20, Math.floor(availableHeight / numRows));
+        } else {
+          cellHeight = Math.max(minCellHeight, cellHeight);
+        }
+        
+        // Recalculate to ensure table fits - account for all borders
+        // Each cell has 1px border on each side = 2px per cell, but borders collapse
+        // So we only count borders on the outer edges
+        const outerBorderWidth = 2; // 1px on each side
+        const totalTableWidth = (cellWidth * numCols) + rowHeaderWidth + outerBorderWidth;
+        const totalTableHeight = (cellHeight * numRows) + 45 + outerBorderWidth; // 45 is header height
+        
+        // Get the actual available container dimensions (already accounting for padding)
+        // availableWidth and availableHeight already account for padding and headers
+        const maxAvailableWidth = availableWidth + rowHeaderWidth; // Add back header since table includes it
+        const maxAvailableHeight = availableHeight + 45; // Add back header height
+        
+        // If table would exceed available space, scale down proportionally
+        // Use a small margin to ensure we don't overflow
+        const widthMargin = 2;
+        const heightMargin = 2;
+        
+        if (totalTableWidth > (maxAvailableWidth - widthMargin)) {
+          const scaleFactor = (maxAvailableWidth - widthMargin - outerBorderWidth) / (totalTableWidth - outerBorderWidth);
+          cellWidth = Math.max(15, Math.floor(cellWidth * scaleFactor));
+        }
+        
+        if (totalTableHeight > (maxAvailableHeight - heightMargin)) {
+          const scaleFactor = (maxAvailableHeight - heightMargin - outerBorderWidth) / (totalTableHeight - outerBorderWidth);
+          cellHeight = Math.max(15, Math.floor(cellHeight * scaleFactor));
+        }
+        
+        // Ensure minimum sizes but allow smaller if absolutely necessary to fit
+        const absoluteMinWidth = 15;
+        const absoluteMinHeight = 15;
+        cellWidth = Math.max(absoluteMinWidth, cellWidth);
+        cellHeight = Math.max(absoluteMinHeight, cellHeight);
         
         setCellSize({ width: cellWidth, height: cellHeight });
+      } else {
+        // Fallback to reasonable defaults if calculation fails
+        setCellSize({ width: 80, height: 40 });
       }
     };
 
-    // Small delay to ensure DOM is ready
-    const timeoutId = setTimeout(calculateCellSize, 100);
+    // Calculate immediately and also after a short delay to ensure DOM is ready
     calculateCellSize();
+    const timeoutId = setTimeout(calculateCellSize, 50);
+    const timeoutId2 = setTimeout(calculateCellSize, 200);
     
-    // Recalculate on window resize
+    // Debounced resize handler for better performance
+    let resizeTimeout = null;
     const handleResize = () => {
-      calculateCellSize();
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
+      resizeTimeout = setTimeout(() => {
+        calculateCellSize();
+      }, 100);
     };
     
     window.addEventListener('resize', handleResize);
     
+    // Also handle orientation changes
+    window.addEventListener('orientationchange', () => {
+      setTimeout(calculateCellSize, 200);
+    });
+    
     // Use ResizeObserver for more accurate container size tracking
     let resizeObserver = null;
     if (containerRef.current) {
-      resizeObserver = new ResizeObserver(calculateCellSize);
+      resizeObserver = new ResizeObserver(() => {
+        // Debounce ResizeObserver callbacks too
+        if (resizeTimeout) {
+          clearTimeout(resizeTimeout);
+        }
+        resizeTimeout = setTimeout(() => {
+          calculateCellSize();
+        }, 50);
+      });
       resizeObserver.observe(containerRef.current);
+      
+      // Also observe the parent container for better tracking
+      const mapViewContent = containerRef.current.closest('.map-view-content');
+      if (mapViewContent) {
+        resizeObserver.observe(mapViewContent);
+      }
     }
+    
+    // Function to check if table overflows and recalculate if needed
+    const checkTableOverflow = () => {
+      if (!tableRef.current || !containerRef.current) return;
+      
+      const table = tableRef.current;
+      const container = containerRef.current;
+      const tableRect = table.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      
+      // Check if table overflows container (with small tolerance)
+      const tolerance = 2;
+      const overflowsWidth = tableRect.width > (containerRect.width + tolerance);
+      const overflowsHeight = tableRect.height > (containerRect.height + tolerance);
+      
+      if (overflowsWidth || overflowsHeight) {
+        // Table overflows, recalculate cell sizes with more aggressive scaling
+        if (!containerRef.current) return;
+        
+        const container = containerRef.current;
+        let containerRect = container.getBoundingClientRect();
+        
+        if (containerRect.width === 0 || containerRect.height === 0) {
+          const mapViewContent = container.closest('.map-view-content');
+          if (mapViewContent) {
+            containerRect = mapViewContent.getBoundingClientRect();
+          }
+        }
+        
+        const mapViewContent = container.closest('.map-view-content');
+        const parentStyle = mapViewContent ? getComputedStyle(mapViewContent) : null;
+        const parentPaddingTop = parentStyle ? parseInt(parentStyle.paddingTop || '32px', 10) : 32;
+        const parentPaddingBottom = parentStyle ? parseInt(parentStyle.paddingBottom || '32px', 10) : 32;
+        const parentPaddingLeft = parentStyle ? parseInt(parentStyle.paddingLeft || '32px', 10) : 32;
+        const parentPaddingRight = parentStyle ? parseInt(parentStyle.paddingRight || '32px', 10) : 32;
+        
+        const mapViewHeader = container.closest('.map-view')?.querySelector('.map-view-header');
+        const headerHeight = mapViewHeader ? mapViewHeader.getBoundingClientRect().height : 0;
+        
+        const rowHeaderWidth = 80;
+        const scrollbarWidth = 17;
+        const availableWidth = Math.max(0, containerRect.width - parentPaddingLeft - parentPaddingRight - rowHeaderWidth - scrollbarWidth);
+        const availableHeight = Math.max(0, containerRect.height - parentPaddingTop - parentPaddingBottom - headerHeight - scrollbarWidth);
+        
+        const numCols = colOrder.length;
+        const numRows = rowOrder.length;
+        
+        if (numCols > 0 && numRows > 0 && availableWidth > 0 && availableHeight > 0) {
+          // More aggressive scaling to ensure table fits
+          const cellWidth = Math.max(15, Math.floor((availableWidth - 4) / numCols));
+          const cellHeight = Math.max(15, Math.floor((availableHeight - 4) / numRows));
+          setCellSize({ width: cellWidth, height: cellHeight });
+        }
+      }
+    };
+    
+    // Use MutationObserver to detect when table content is added/changed
+    let mutationObserver = null;
+    const setupTableObserver = () => {
+      if (tableRef.current) {
+        mutationObserver = new MutationObserver(() => {
+          // Wait for next frame to ensure content is rendered
+          requestAnimationFrame(() => {
+            setTimeout(checkTableOverflow, 50);
+          });
+        });
+        mutationObserver.observe(tableRef.current, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['style', 'width', 'height']
+        });
+        
+        // Also observe table with ResizeObserver
+        if (resizeObserver) {
+          resizeObserver.observe(tableRef.current);
+        }
+      }
+    };
+    
+    // Setup observer after a delay to ensure table is rendered
+    const setupTimeout = setTimeout(setupTableObserver, 100);
+    
+    // Check for overflow after content is rendered (multiple attempts)
+    const checkOverflowDelays = [150, 400, 600, 800];
+    checkOverflowDelays.forEach(delay => {
+      setTimeout(() => {
+        checkTableOverflow();
+        calculateCellSize();
+      }, delay);
+    });
 
     return () => {
       clearTimeout(timeoutId);
+      clearTimeout(timeoutId2);
+      clearTimeout(setupTimeout);
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
       if (resizeObserver && containerRef.current) {
         resizeObserver.unobserve(containerRef.current);
+        if (tableRef.current) {
+          resizeObserver.unobserve(tableRef.current);
+        }
+        const mapViewContent = containerRef.current.closest('.map-view-content');
+        if (mapViewContent) {
+          resizeObserver.unobserve(mapViewContent);
+        }
+      }
+      if (mutationObserver) {
+        mutationObserver.disconnect();
       }
     };
-  }, [colOrder.length, rowOrder.length, maxCols, maxRows]);
+  }, [colOrder.length, rowOrder.length, maxCols, maxRows, data1, data2, displayData]);
 
   // Helper to get sorted index value for display
   const getColIndexValue = (displayIndex) => {
@@ -195,10 +490,26 @@ function MapTable({ map1, map2, mapDiff, rowIndexData, colIndexData, showPercent
       : originalRow;
   };
 
+  // Calculate total table dimensions based on cell sizes
+  const totalTableWidth = (cellSize.width * colOrder.length) + 80; // 80 for row header
+  // Total height = header row + all data rows
+  const totalTableHeight = cellSize.height + (cellSize.height * rowOrder.length);
+  
+  // Don't constrain table dimensions - allow it to be larger than viewport for scrolling
+  // The container will handle overflow with scrolling
+
   return (
     <div className="map-table-container" ref={containerRef}>
-      <div className="map-table-wrapper">
-        <table className="map-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+      <div className="map-table-wrapper" style={{ maxWidth: '100%', overflow: 'auto' }}>
+        <table 
+          ref={tableRef}
+          className="map-table" 
+          style={{ 
+            tableLayout: 'fixed',
+            width: `${totalTableWidth}px`,
+            height: `${totalTableHeight}px`
+          }}
+        >
           <thead>
             <tr>
               <th className="row-header" style={{ width: '80px', height: `${cellSize.height}px` }}></th>
@@ -288,7 +599,7 @@ function MapTable({ map1, map2, mapDiff, rowIndexData, colIndexData, showPercent
                     height: `${cellSize.height}px`,
                     minHeight: `${cellSize.height}px`,
                     maxHeight: `${cellSize.height}px`,
-                    fontSize: cellSize.width < 50 ? '0.7rem' : cellSize.width < 60 ? '0.75rem' : '0.9rem'
+                    fontSize: cellSize.width < 50 ? '0.6rem' : cellSize.width < 60 ? '0.65rem' : '0.75rem'
                   };
 
                   return (
